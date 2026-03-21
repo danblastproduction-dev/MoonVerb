@@ -141,6 +141,11 @@ void MoonVerbEditor::resized()
 
 void MoonVerbEditor::timerCallback()
 {
+    // Sync preset ComboBox with processor (handles DAW session restore)
+    int procPreset = processor.getCurrentProgram();
+    if (presetBox.getSelectedId() != procPreset + 1)
+        presetBox.setSelectedId(procPreset + 1, juce::dontSendNotification);
+
     updateAnimation();
     repaint();
 }
