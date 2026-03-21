@@ -77,7 +77,7 @@ MoonVerbEditor::MoonVerbEditor(MoonVerbProcessor& p)
     // Initialize starfield
     juce::Random rng;
     for (int i = 0; i < 80; ++i)
-        stars.push_back({ rng.nextFloat() * 700.0f, rng.nextFloat() * 300.0f,
+        stars.push_back({ rng.nextFloat() * 700.0f, rng.nextFloat() * 500.0f,
                           0.2f + rng.nextFloat() * 0.8f, 0.05f + rng.nextFloat() * 0.15f });
 
     startTimerHz(60);
@@ -111,7 +111,7 @@ void MoonVerbEditor::resized()
 
     // Footer (24px)
     auto footer = area.removeFromBottom(24);
-    discoverBtn.setBounds(footer.getRight() - 180, 0, 170, 24);
+    discoverBtn.setBounds(footer.getRight() - 180, footer.getY(), 170, 24);
 
     // Knobs row 2 (80px from bottom)
     auto row2 = area.removeFromBottom(80);
@@ -182,6 +182,111 @@ void MoonVerbEditor::paintStarfield(juce::Graphics& g, juce::Rectangle<float> ar
     }
 }
 
+void MoonVerbEditor::generateMoonTexture(int size)
+{
+    cachedMoonSize = size;
+    moonTexture = juce::Image(juce::Image::ARGB, size, size, true);
+    float half = size * 0.5f;
+
+    // Pre-compute craters
+    struct Crater { float cu, cv, cr; };
+    std::vector<Crater> craters;
+    juce::Random crng(123);
+    for (int i = 0; i < 80; ++i)
+        craters.push_back({ crng.nextFloat() * 6.0f - 0.5f,
+                            crng.nextFloat() * 3.14159f,
+                            0.02f + crng.nextFloat() * 0.08f });
+
+    float lx = -0.5f, ly = -0.5f, lz = 0.7f;
+    float ll = std::sqrt(lx * lx + ly * ly + lz * lz);
+    lx /= ll; ly /= ll; lz /= ll;
+
+    for (int py = 0; py < size; ++py)
+    {
+        for (int px = 0; px < size; ++px)
+        {
+            float dx = (px - half) / half;
+            float dy = (py - half) / half;
+            float d2 = dx * dx + dy * dy;
+            if (d2 > 1.0f) continue;
+
+            float snz = std::sqrt(1.0f - d2);
+            float snx = dx, sny = dy;
+
+            // Spherical UV
+            float u = std::atan2(snx, snz) * 1.5f;
+            float v = std::asin(juce::jlimit(-1.0f, 1.0f, sny));
+
+            // Terrain noise
+            float terrain = fbm(u * 3.0f + 7.0f, v * 3.0f + 3.0f, 6);
+            // Maria (dark regions)
+            float maria = fbm(u * 1.2f + 50.0f, v * 1.2f + 50.0f, 3);
+            maria = juce::jlimit(0.0f, 1.0f, maria * 1.5f - 0.2f);
+            // Fine detail
+            float detail = fbm(u * 12.0f + 100.0f, v * 12.0f + 100.0f, 3) * 0.15f;
+
+            // Crater displacement
+            float craterVal = 0.0f;
+            for (auto& c : craters)
+            {
+                float du = u - c.cu, dv = v - c.cv;
+                float cd = std::sqrt(du * du + dv * dv);
+                if (cd < c.cr * 2.0f)
+                {
+                    float t = cd / c.cr;
+                    if (t < 0.8f)
+                        craterVal -= (0.8f - t) * 0.3f; // floor
+                    else if (t < 1.2f)
+                        craterVal += (1.0f - std::abs(t - 1.0f) / 0.2f) * 0.15f; // rim
+                }
+            }
+
+            float height = terrain + detail + craterVal;
+
+            // Bump-mapped normal
+            float eps = 0.01f;
+            float hR = fbm((u + eps) * 3.0f + 7.0f, v * 3.0f + 3.0f, 6) +
+                        fbm((u + eps) * 12.0f + 100.0f, v * 12.0f + 100.0f, 3) * 0.15f;
+            float hU = fbm(u * 3.0f + 7.0f, (v + eps) * 3.0f + 3.0f, 6) +
+                        fbm(u * 12.0f + 100.0f, (v + eps) * 12.0f + 100.0f, 3) * 0.15f;
+            float bx = (hR - terrain - detail) / eps * 0.3f;
+            float by = (hU - terrain - detail) / eps * 0.3f;
+            float nnx = snx - bx;
+            float nny = sny - by;
+            float nnz = snz;
+            float nl = std::sqrt(nnx * nnx + nny * nny + nnz * nnz);
+            nnx /= nl; nny /= nl; nnz /= nl;
+
+            // Diffuse lighting
+            float diff = juce::jmax(0.0f, nnx * lx + nny * ly + nnz * lz);
+            diff = 0.08f + diff * 0.92f;
+
+            // Base colour: blend highlands/maria
+            float baseGrey = 0.75f - maria * 0.35f + height * 0.15f;
+            baseGrey = juce::jlimit(0.15f, 0.95f, baseGrey);
+
+            float surface = baseGrey * diff;
+
+            // Limb darkening
+            float limb = std::pow(snz, 0.3f);
+            surface *= limb;
+
+            surface = juce::jlimit(0.0f, 1.0f, surface);
+
+            uint8_t lumR = static_cast<uint8_t>(surface * 255);
+            uint8_t lumG = static_cast<uint8_t>(surface * 258);
+            uint8_t lumB = static_cast<uint8_t>(juce::jmin(255.0f, surface * 268.0f));
+
+            // Anti-aliased edge
+            float edge = std::sqrt(d2);
+            float aa = juce::jlimit(0.0f, 1.0f, (1.0f - edge) * half);
+            uint8_t alpha = static_cast<uint8_t>(aa * 255.0f);
+
+            moonTexture.setPixelAt(px, py, juce::Colour(lumR, lumG, lumB, alpha));
+        }
+    }
+}
+
 void MoonVerbEditor::paintMoon(juce::Graphics& g, float cx, float cy, float radius, float energy)
 {
     bool isFrozen = processor.apvts.getRawParameterValue("freeze")->load() > 0.5f;
@@ -197,22 +302,20 @@ void MoonVerbEditor::paintMoon(juce::Graphics& g, float cx, float cy, float radi
         g.fillEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f);
     }
 
-    // Moon body — gradient
-    juce::ColourGradient moonGrad(juce::Colour(0xFFE0E8F0), cx - radius * 0.3f, cy - radius * 0.3f,
-                                   juce::Colour(0xFF404860), cx + radius * 0.6f, cy + radius * 0.6f, true);
-    g.setGradientFill(moonGrad);
-    g.fillEllipse(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+    // Generate texture if needed
+    int texSize = static_cast<int>(radius * 2.0f);
+    if (texSize < 64) texSize = 64;
+    if (texSize != cachedMoonSize)
+        generateMoonTexture(texSize);
 
-    // Subtle texture (procedural dots)
-    juce::Random rng(42); // fixed seed for consistent texture
-    g.setColour(juce::Colour(0xFF000000).withAlpha(0.1f));
-    for (int i = 0; i < 40; ++i)
-    {
-        float dx = (rng.nextFloat() - 0.5f) * radius * 1.8f;
-        float dy = (rng.nextFloat() - 0.5f) * radius * 1.8f;
-        if (dx * dx + dy * dy < radius * radius * 0.8f)
-            g.fillEllipse(cx + dx - 2, cy + dy - 2, 4 + rng.nextFloat() * 6, 4 + rng.nextFloat() * 6);
-    }
+    // Draw the pre-rendered moon texture
+    float brightBoost = 0.8f + energy * 0.3f;
+    g.setOpacity(juce::jlimit(0.6f, 1.1f, brightBoost));
+    g.drawImage(moonTexture,
+                static_cast<int>(cx - radius), static_cast<int>(cy - radius),
+                static_cast<int>(radius * 2.0f), static_cast<int>(radius * 2.0f),
+                0, 0, moonTexture.getWidth(), moonTexture.getHeight());
+    g.setOpacity(1.0f);
 
     // Pulse effect
     float pulse = 1.0f + energy * 0.05f;
@@ -282,9 +385,9 @@ void MoonVerbEditor::updateAnimation()
     if (smoothEnergy > 0.01f || isFrozen)
     {
         // ringCounter is a member variable (not static — avoids sharing across instances)
-        if (++ringCounter > (isFrozen ? 30 : 8))
+        if (++ringCounter > (isFrozen ? 60 : 45))
         {
-            rings.push_back({ 65.0f, 0.5f + decay * 0.5f, 15.0f + (1.0f - decay) * 30.0f });
+            rings.push_back({ 65.0f, 0.3f + decay * 0.3f, 15.0f + (1.0f - decay) * 30.0f });
             ringCounter = 0;
         }
     }
@@ -294,8 +397,8 @@ void MoonVerbEditor::updateAnimation()
     {
         if (!isFrozen)
         {
-            ring.radius += ring.speed * (1.0f / 60.0f) * 30.0f;
-            ring.alpha -= (1.0f / 60.0f) * (1.0f - decay * 0.8f) * 0.3f;
+            ring.radius += ring.speed * (1.0f / 60.0f) * 5.0f;
+            ring.alpha -= (1.0f / 60.0f) * (1.0f - decay * 0.8f) * 0.08f;
         }
         else
         {
@@ -303,7 +406,7 @@ void MoonVerbEditor::updateAnimation()
         }
     }
     rings.erase(std::remove_if(rings.begin(), rings.end(),
-        [](const Ring& r) { return r.alpha <= 0.0f || r.radius > 200.0f; }), rings.end());
+        [](const Ring& r) { return r.alpha <= 0.0f || r.radius > 300.0f; }), rings.end());
 
     // Spawn shimmer particles
     if (shimmer > 0.05f)

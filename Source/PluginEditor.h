@@ -53,6 +53,42 @@ private:
     struct Particle { float x, y, vx, vy, alpha, life; };
     std::vector<Particle> particles;
 
+    // Moon texture cache
+    juce::Image moonTexture;
+    int cachedMoonSize = 0;
+    void generateMoonTexture(int size);
+
+    static float gradHash(int ix, int iy)
+    {
+        unsigned int h = static_cast<unsigned int>(ix * 374761393 + iy * 668265263);
+        h = (h ^ (h >> 13)) * 1274126177u;
+        return static_cast<float>(h & 0x7FFFFFFF) / 2147483647.0f;
+    }
+
+    static float gradNoise(float x, float y)
+    {
+        int ix = static_cast<int>(std::floor(x));
+        int iy = static_cast<int>(std::floor(y));
+        float fx = x - ix, fy = y - iy;
+        float ux = fx * fx * fx * (fx * (fx * 6.0f - 15.0f) + 10.0f);
+        float uy = fy * fy * fy * (fy * (fy * 6.0f - 15.0f) + 10.0f);
+        float a = gradHash(ix, iy), b = gradHash(ix + 1, iy);
+        float c = gradHash(ix, iy + 1), d = gradHash(ix + 1, iy + 1);
+        return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+    }
+
+    static float fbm(float x, float y, int octaves)
+    {
+        float val = 0.0f, amp = 0.5f, freq = 1.0f;
+        for (int i = 0; i < octaves; ++i)
+        {
+            val += gradNoise(x * freq, y * freq) * amp;
+            amp *= 0.5f;
+            freq *= 2.07f;
+        }
+        return val;
+    }
+
     void setupKnob(juce::Slider& knob, juce::Label& label, const juce::String& text);
     void paintStarfield(juce::Graphics& g, juce::Rectangle<float> area);
     void paintMoon(juce::Graphics& g, float cx, float cy, float radius, float energy);
