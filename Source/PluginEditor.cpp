@@ -192,10 +192,10 @@ void MoonVerbEditor::generateMoonTexture(int size)
     struct Crater { float cu, cv, cr; };
     std::vector<Crater> craters;
     juce::Random crng(123);
-    for (int i = 0; i < 80; ++i)
+    for (int i = 0; i < 25; ++i)
         craters.push_back({ crng.nextFloat() * 6.0f - 0.5f,
                             crng.nextFloat() * 3.14159f,
-                            0.02f + crng.nextFloat() * 0.08f });
+                            0.02f + crng.nextFloat() * 0.06f });
 
     float lx = -0.5f, ly = -0.5f, lz = 0.7f;
     float ll = std::sqrt(lx * lx + ly * ly + lz * lz);
@@ -218,12 +218,12 @@ void MoonVerbEditor::generateMoonTexture(int size)
             float v = std::asin(juce::jlimit(-1.0f, 1.0f, sny));
 
             // Terrain noise
-            float terrain = fbm(u * 3.0f + 7.0f, v * 3.0f + 3.0f, 6);
+            float terrain = fbm(u * 3.0f + 7.0f, v * 3.0f + 3.0f, 4);
             // Maria (dark regions)
             float maria = fbm(u * 1.2f + 50.0f, v * 1.2f + 50.0f, 3);
-            maria = juce::jlimit(0.0f, 1.0f, maria * 1.5f - 0.2f);
+            maria = juce::jlimit(0.0f, 1.0f, maria * 1.2f - 0.1f);
             // Fine detail
-            float detail = fbm(u * 12.0f + 100.0f, v * 12.0f + 100.0f, 3) * 0.15f;
+            float detail = fbm(u * 12.0f + 100.0f, v * 12.0f + 100.0f, 3) * 0.06f;
 
             // Crater displacement
             float craterVal = 0.0f;
@@ -235,9 +235,9 @@ void MoonVerbEditor::generateMoonTexture(int size)
                 {
                     float t = cd / c.cr;
                     if (t < 0.8f)
-                        craterVal -= (0.8f - t) * 0.3f; // floor
+                        craterVal -= (0.8f - t) * 0.15f; // floor
                     else if (t < 1.2f)
-                        craterVal += (1.0f - std::abs(t - 1.0f) / 0.2f) * 0.15f; // rim
+                        craterVal += (1.0f - std::abs(t - 1.0f) / 0.2f) * 0.08f; // rim
                 }
             }
 
@@ -245,12 +245,12 @@ void MoonVerbEditor::generateMoonTexture(int size)
 
             // Bump-mapped normal
             float eps = 0.01f;
-            float hR = fbm((u + eps) * 3.0f + 7.0f, v * 3.0f + 3.0f, 6) +
-                        fbm((u + eps) * 12.0f + 100.0f, v * 12.0f + 100.0f, 3) * 0.15f;
-            float hU = fbm(u * 3.0f + 7.0f, (v + eps) * 3.0f + 3.0f, 6) +
-                        fbm(u * 12.0f + 100.0f, (v + eps) * 12.0f + 100.0f, 3) * 0.15f;
-            float bx = (hR - terrain - detail) / eps * 0.3f;
-            float by = (hU - terrain - detail) / eps * 0.3f;
+            float hR = fbm((u + eps) * 3.0f + 7.0f, v * 3.0f + 3.0f, 4) +
+                        fbm((u + eps) * 12.0f + 100.0f, v * 12.0f + 100.0f, 3) * 0.06f;
+            float hU = fbm(u * 3.0f + 7.0f, (v + eps) * 3.0f + 3.0f, 4) +
+                        fbm(u * 12.0f + 100.0f, (v + eps) * 12.0f + 100.0f, 3) * 0.06f;
+            float bx = (hR - terrain - detail) / eps * 0.12f;
+            float by = (hU - terrain - detail) / eps * 0.12f;
             float nnx = snx - bx;
             float nny = sny - by;
             float nnz = snz;
@@ -259,17 +259,17 @@ void MoonVerbEditor::generateMoonTexture(int size)
 
             // Diffuse lighting
             float diff = juce::jmax(0.0f, nnx * lx + nny * ly + nnz * lz);
-            diff = 0.08f + diff * 0.92f;
+            diff = 0.15f + diff * 0.85f;
 
             // Base colour: blend highlands/maria
-            float baseGrey = 0.75f - maria * 0.35f + height * 0.15f;
+            float baseGrey = 0.80f - maria * 0.20f + height * 0.08f;
             baseGrey = juce::jlimit(0.15f, 0.95f, baseGrey);
 
             float surface = baseGrey * diff;
 
             // Limb darkening
-            float limb = std::pow(snz, 0.3f);
-            surface *= limb;
+            float limbFade = std::pow(snz, 0.3f);
+            surface *= 0.65f + 0.35f * limbFade;
 
             surface = juce::jlimit(0.0f, 1.0f, surface);
 
@@ -294,11 +294,11 @@ void MoonVerbEditor::paintMoon(juce::Graphics& g, float cx, float cy, float radi
     // Moon glow (outer)
     float glowIntensity = 0.15f + energy * 0.3f;
     if (isFrozen) glowIntensity += 0.2f;
-    for (float r = radius * 2.5f; r > radius; r -= 3.0f)
+    for (float r = radius * 3.0f; r > radius; r -= 2.0f)
     {
-        float a = glowIntensity * (1.0f - (r - radius) / (radius * 1.5f));
+        float a = glowIntensity * (1.0f - (r - radius) / (radius * 2.0f));
         auto glowColour = isFrozen ? juce::Colour(0xFF60C0FF) : juce::Colour(0xFF4080D0);
-        g.setColour(glowColour.withAlpha(a * 0.15f));
+        g.setColour(glowColour.withAlpha(a * 0.12f));
         g.fillEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f);
     }
 
@@ -342,12 +342,15 @@ void MoonVerbEditor::paintRings(juce::Graphics& g, float cx, float cy, float max
 
         auto ringColour = isFrozen ? juce::Colour(0xFF60C0FF) : juce::Colour(0xFF4080D0);
 
+        // Outer diffuse glow
+        g.setColour(ringColour.withAlpha(ring.alpha * 0.03f));
+        g.drawEllipse(cx - r - 6, cy - r - 6, (r + 6) * 2.0f, (r + 6) * 2.0f, 12.0f);
         // Glow
-        g.setColour(ringColour.withAlpha(ring.alpha * 0.08f));
-        g.drawEllipse(cx - r - 3, cy - r - 3, (r + 3) * 2.0f, (r + 3) * 2.0f, 6.0f);
+        g.setColour(ringColour.withAlpha(ring.alpha * 0.05f));
+        g.drawEllipse(cx - r - 4, cy - r - 4, (r + 4) * 2.0f, (r + 4) * 2.0f, 8.0f);
         // Ring
         g.setColour(ringColour.withAlpha(ring.alpha * 0.4f));
-        g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 1.5f);
+        g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 1.0f);
     }
 }
 
@@ -361,10 +364,10 @@ void MoonVerbEditor::paintParticles(juce::Graphics& g, float cx, float cy)
         if (p.alpha <= 0.0f) continue;
         auto colour = juce::Colour(0xFFFFD080).withAlpha(p.alpha * 0.7f);
         g.setColour(colour);
-        float size = 2.0f + p.alpha * 2.0f;
+        float size = 1.0f + p.alpha * 1.5f;
         g.fillEllipse(cx + p.x - size * 0.5f, cy + p.y - size * 0.5f, size, size);
         // Small glow
-        g.setColour(colour.withAlpha(p.alpha * 0.2f));
+        g.setColour(colour.withAlpha(p.alpha * 0.1f));
         g.fillEllipse(cx + p.x - size, cy + p.y - size, size * 2.0f, size * 2.0f);
     }
 }
@@ -385,9 +388,9 @@ void MoonVerbEditor::updateAnimation()
     if (smoothEnergy > 0.01f || isFrozen)
     {
         // ringCounter is a member variable (not static — avoids sharing across instances)
-        if (++ringCounter > (isFrozen ? 60 : 45))
+        if (++ringCounter > (isFrozen ? 90 : 60))
         {
-            rings.push_back({ 65.0f, 0.3f + decay * 0.3f, 15.0f + (1.0f - decay) * 30.0f });
+            rings.push_back({ 65.0f, 0.2f + decay * 0.25f, 15.0f + (1.0f - decay) * 30.0f });
             ringCounter = 0;
         }
     }
@@ -397,8 +400,8 @@ void MoonVerbEditor::updateAnimation()
     {
         if (!isFrozen)
         {
-            ring.radius += ring.speed * (1.0f / 60.0f) * 5.0f;
-            ring.alpha -= (1.0f / 60.0f) * (1.0f - decay * 0.8f) * 0.08f;
+            ring.radius += ring.speed * (1.0f / 60.0f) * 3.0f;
+            ring.alpha -= (1.0f / 60.0f) * (1.0f - decay * 0.8f) * 0.04f;
         }
         else
         {
@@ -412,7 +415,7 @@ void MoonVerbEditor::updateAnimation()
     if (shimmer > 0.05f)
     {
         juce::Random rng;
-        if (rng.nextFloat() < shimmer * 0.3f)
+        if (rng.nextFloat() < shimmer * 0.15f)
         {
             float angle = rng.nextFloat() * juce::MathConstants<float>::twoPi;
             float dist = 30.0f + rng.nextFloat() * 30.0f;
@@ -420,9 +423,9 @@ void MoonVerbEditor::updateAnimation()
                 std::cos(angle) * dist,
                 std::sin(angle) * dist,
                 (rng.nextFloat() - 0.5f) * 0.3f,
-                -0.5f - rng.nextFloat() * 1.0f,  // drift upward
+                -0.2f - rng.nextFloat() * 0.4f,  // drift upward
                 0.8f + rng.nextFloat() * 0.2f,
-                2.0f + rng.nextFloat() * 2.0f
+                3.0f + rng.nextFloat() * 3.0f
             });
         }
     }

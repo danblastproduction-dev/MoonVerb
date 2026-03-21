@@ -36,7 +36,7 @@ private:
     juce::TextButton prevBtn { "<" }, nextBtn { ">" };
 
     // Footer link
-    juce::TextButton discoverBtn { "Discover MoonPad \xe2\x86\x92" };
+    juce::TextButton discoverBtn { "Discover MoonPad >" };
 
     // Animation state
     float animTime = 0.0f;
