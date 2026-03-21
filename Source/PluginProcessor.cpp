@@ -109,8 +109,8 @@ const juce::String MoonVerbProcessor::getProgramName(int index)
 void MoonVerbProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    state.setProperty("currentPreset", currentPreset, nullptr);
     auto xml = state.createXml();
-    xml->setAttribute("currentPreset", currentPreset);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -119,8 +119,9 @@ void MoonVerbProcessor::setStateInformation(const void* data, int sizeInBytes)
     auto xml = getXmlFromBinary(data, sizeInBytes);
     if (xml && xml->hasTagName(apvts.state.getType()))
     {
-        apvts.replaceState(juce::ValueTree::fromXml(*xml));
-        currentPreset = xml->getIntAttribute("currentPreset", 0);
+        auto newState = juce::ValueTree::fromXml(*xml);
+        currentPreset = newState.getProperty("currentPreset", 0);
+        apvts.replaceState(newState);
     }
 }
 
