@@ -180,10 +180,18 @@ void MoonVerbEditor::paintStarfield(juce::Graphics& g, juce::Rectangle<float> ar
 {
     for (auto& star : stars)
     {
-        float alpha = star.brightness * (0.5f + 0.5f * std::sin(animTime * star.speed * 2.0f));
-        g.setColour(juce::Colour(0xFFD0D8F0).withAlpha(alpha * 0.6f));
-        float size = 1.0f + star.brightness * 1.5f;
+        float twinkle = 0.4f + 0.6f * std::sin(animTime * star.speed * 3.0f + star.x * 0.1f);
+        float alpha = star.brightness * twinkle;
+        g.setColour(juce::Colour(0xFFD0D8F0).withAlpha(alpha * 0.7f));
+        float size = 1.0f + star.brightness * 1.5f + twinkle * 0.5f;
         g.fillEllipse(star.x, area.getY() + star.y, size, size);
+
+        // Subtle glow on bright stars
+        if (star.brightness > 0.7f)
+        {
+            g.setColour(juce::Colour(0xFFD0D8F0).withAlpha(alpha * 0.15f));
+            g.fillEllipse(star.x - 1.5f, area.getY() + star.y - 1.5f, size + 3.0f, size + 3.0f);
+        }
     }
 }
 
@@ -296,9 +304,13 @@ void MoonVerbEditor::paintMoon(juce::Graphics& g, float cx, float cy, float radi
 {
     bool isFrozen = processor.apvts.getRawParameterValue("freeze")->load() > 0.5f;
 
-    // Moon glow (outer)
-    float glowIntensity = 0.15f + energy * 0.3f;
-    if (isFrozen) glowIntensity += 0.2f;
+    // Ambient breathing — always alive, even with no signal
+    float breathe = 0.5f + 0.5f * std::sin(animTime * 0.4f);
+    float breathe2 = 0.5f + 0.5f * std::sin(animTime * 0.7f + 1.5f);
+
+    // Moon glow (outer) — breathes gently even at idle
+    float glowIntensity = 0.20f + breathe * 0.08f + energy * 0.25f;
+    if (isFrozen) glowIntensity += 0.15f;
     for (float r = radius * 3.0f; r > radius; r -= 2.0f)
     {
         float a = glowIntensity * (1.0f - (r - radius) / (radius * 2.0f));
@@ -313,23 +325,21 @@ void MoonVerbEditor::paintMoon(juce::Graphics& g, float cx, float cy, float radi
     if (texSize != cachedMoonSize)
         generateMoonTexture(texSize);
 
-    // Draw the pre-rendered moon texture
-    float brightBoost = 0.8f + energy * 0.3f;
-    g.setOpacity(juce::jlimit(0.6f, 1.1f, brightBoost));
+    // Draw the pre-rendered moon texture — breathes gently
+    float brightBoost = 0.82f + breathe * 0.05f + energy * 0.25f;
+    g.setOpacity(juce::jlimit(0.65f, 1.1f, brightBoost));
     g.drawImage(moonTexture,
                 static_cast<int>(cx - radius), static_cast<int>(cy - radius),
                 static_cast<int>(radius * 2.0f), static_cast<int>(radius * 2.0f),
                 0, 0, moonTexture.getWidth(), moonTexture.getHeight());
     g.setOpacity(1.0f);
 
-    // Pulse effect
-    float pulse = 1.0f + energy * 0.05f;
-    if (pulse > 1.01f)
-    {
-        g.setColour(juce::Colour(0xFFFFFFFF).withAlpha(energy * 0.1f));
-        g.drawEllipse(cx - radius * pulse, cy - radius * pulse,
-                      radius * 2.0f * pulse, radius * 2.0f * pulse, 1.0f);
-    }
+    // Ambient pulse ring — always visible, breathes slowly
+    float ambientPulse = 1.02f + breathe2 * 0.015f + energy * 0.04f;
+    float pulseAlpha = 0.04f + breathe * 0.03f + energy * 0.08f;
+    g.setColour(juce::Colour(0xFFD0D8F0).withAlpha(pulseAlpha));
+    g.drawEllipse(cx - radius * ambientPulse, cy - radius * ambientPulse,
+                  radius * 2.0f * ambientPulse, radius * 2.0f * ambientPulse, 0.8f);
 }
 
 void MoonVerbEditor::paintRings(juce::Graphics& g, float cx, float cy, float maxRadius)
@@ -389,13 +399,16 @@ void MoonVerbEditor::updateAnimation()
     bool isFrozen = processor.apvts.getRawParameterValue("freeze")->load() > 0.5f;
     float shimmer = processor.apvts.getRawParameterValue("shimmer")->load();
 
-    // Spawn rings based on energy
-    if (smoothEnergy > 0.01f || isFrozen)
+    // Spawn rings — always, but more when there's signal
     {
-        // ringCounter is a member variable (not static — avoids sharing across instances)
-        if (++ringCounter > (isFrozen ? 90 : 60))
+        int spawnInterval = 120; // ambient: slow spawn even when idle
+        if (smoothEnergy > 0.01f) spawnInterval = 60; // active: faster
+        if (isFrozen) spawnInterval = 90;
+
+        if (++ringCounter > spawnInterval)
         {
-            rings.push_back({ 65.0f, 0.2f + decay * 0.25f, 15.0f + (1.0f - decay) * 30.0f });
+            float ringAlpha = 0.1f + decay * 0.15f + smoothEnergy * 0.2f;
+            rings.push_back({ 65.0f, ringAlpha, 10.0f + (1.0f - decay) * 15.0f });
             ringCounter = 0;
         }
     }
@@ -405,8 +418,8 @@ void MoonVerbEditor::updateAnimation()
     {
         if (!isFrozen)
         {
-            ring.radius += ring.speed * (1.0f / 60.0f) * 3.0f;
-            ring.alpha -= (1.0f / 60.0f) * (1.0f - decay * 0.8f) * 0.04f;
+            ring.radius += ring.speed * (1.0f / 60.0f) * 2.0f;
+            ring.alpha -= (1.0f / 60.0f) * (1.0f - decay * 0.8f) * 0.025f;
         }
         else
         {
