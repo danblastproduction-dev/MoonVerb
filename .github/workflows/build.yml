@@ -1,0 +1,72 @@
+name: Build MoonVerb
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    name: Build macOS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: brew install cmake
+
+      - name: Configure CMake (Universal Binary)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Create macOS Installer (.pkg)
+        run: |
+          mkdir -p pkg-root/Library/Audio/Plug-Ins/VST3
+          mkdir -p pkg-root/Library/Audio/Plug-Ins/Components
+
+          cp -R build/MoonVerb_artefacts/Release/VST3/MoonVerb.vst3 \
+                pkg-root/Library/Audio/Plug-Ins/VST3/
+
+          # Copy AU if it exists
+          if [ -d "build/MoonVerb_artefacts/Release/AU/MoonVerb.component" ]; then
+            cp -R build/MoonVerb_artefacts/Release/AU/MoonVerb.component \
+                  pkg-root/Library/Audio/Plug-Ins/Components/
+          fi
+
+          pkgbuild \
+            --root pkg-root \
+            --identifier com.deadloop.moonverb \
+            --version 1.0.0 \
+            --install-location / \
+            MoonVerb_v1.0.0_macOS.pkg
+
+      - name: Upload macOS Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonVerb-macOS-Installer
+          path: MoonVerb_v1.0.0_macOS.pkg
+
+  release:
+    needs: [build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/MoonVerb-macOS-Installer/MoonVerb_v1.0.0_macOS.pkg
+          generate_release_notes: true
