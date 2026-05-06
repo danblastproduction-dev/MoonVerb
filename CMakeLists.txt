@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
+
+if(APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "" FORCE)
+endif()
+
 project(MoonVerb VERSION 1.0.0)
 set(MOONVERB_VERSION "1.0.0")
 
